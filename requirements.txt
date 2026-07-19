@@ -1,0 +1,6 @@
+streamlit>=1.59,<2
+reachy-mini>=1.9,<2
+opencv-python-headless>=4.13,<6
+sounddevice>=0.5.5,<1
+pytest>=9,<10
+
