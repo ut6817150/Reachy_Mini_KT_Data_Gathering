@@ -1,21 +1,13 @@
 """Safe participant/session paths and durable JSON metadata."""
 
-from __future__ import annotations
-
-from dataclasses import dataclass
 from datetime import datetime, timezone
 import json
 from pathlib import Path
+import re
 from typing import Any, Callable
 from uuid import uuid4
 
-from scripts.configuration import (
-    ParticipantConfiguration,
-    ResearcherConfiguration,
-    normalize_participant_id,
-)
-from scripts.question_loader import Question
-from scripts.recorder import RecordingResult
+from services.recorder import CAMERA_NAME, MICROPHONE_NAME
 
 
 Clock = Callable[[], datetime]
@@ -29,36 +21,48 @@ def _iso_timestamp(value: datetime) -> str:
     return value.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
-@dataclass(slots=True)
+def normalize_participant_id(value: str) -> str:
+    """Clean a participant ID for use as a recording-folder name."""
+
+    participant_id = re.sub(r"\s+", "_", value.strip())
+    participant_id = participant_id.replace("/", "_").replace("\\", "_")
+    if participant_id in {"", ".", ".."}:
+        raise ValueError("Please enter a participant ID.")
+    return participant_id
+
+
 class SessionStorage:
     """Own the directory and metadata for one participant session."""
 
-    root: Path
-    session_dir: Path
-    metadata_path: Path
-    metadata: dict[str, Any]
-    clock: Clock = _utc_now
+    def __init__(
+        self,
+        session_dir: Path,
+        metadata: dict[str, Any],
+        clock: Clock,
+    ) -> None:
+        self.session_dir = session_dir
+        self.metadata_path = session_dir / "session.json"
+        self.metadata = metadata
+        self.clock = clock
 
     @classmethod
     def create(
         cls,
         root: str | Path,
-        researcher: ResearcherConfiguration,
-        participant: ParticipantConfiguration,
-        questions: tuple[Question, ...],
+        participant_id: str,
+        reachy_settings: dict[str, object],
+        questions: tuple[str, ...],
         *,
         clock: Clock = _utc_now,
     ) -> "SessionStorage":
-        participant_id = normalize_participant_id(participant.participant_id)
+        participant_id = normalize_participant_id(participant_id)
         root_path = Path(root).expanduser().resolve()
-        participant_dir = root_path / participant_id
         now = clock()
         session_id = now.strftime("session_%Y%m%d_%H%M%S_%f") + f"_{uuid4().hex[:6]}"
-        session_dir = participant_dir / session_id
+        session_dir = root_path / participant_id / session_id
         session_dir.mkdir(parents=True, exist_ok=False)
-
-        # Assert the resolved session remains under the configured recordings root.
         session_dir.resolve().relative_to(root_path)
+
         metadata = {
             "schema_version": 1,
             "participant_id": participant_id,
@@ -66,27 +70,24 @@ class SessionStorage:
             "started_at": _iso_timestamp(now),
             "completed_at": None,
             "completed": False,
-            "researcher_configuration": researcher.to_dict(),
-            "participant_configuration": participant.to_dict(),
+            "researcher_configuration": {
+                "reachy": reachy_settings,
+                "camera": CAMERA_NAME,
+                "microphone": MICROPHONE_NAME,
+            },
             "questions": [
                 {
-                    "number": question.number,
-                    "text": question.text,
+                    "number": number,
+                    "text": text,
                     "recording": None,
                     "recording_started_at": None,
                     "recording_completed_at": None,
                     "duration_seconds": None,
                 }
-                for question in questions
+                for number, text in enumerate(questions, start=1)
             ],
         }
-        storage = cls(
-            root=root_path,
-            session_dir=session_dir,
-            metadata_path=session_dir / "session.json",
-            metadata=metadata,
-            clock=clock,
-        )
+        storage = cls(session_dir, metadata, clock)
         storage._write_metadata()
         return storage
 
@@ -94,23 +95,26 @@ class SessionStorage:
         if question_number <= 0:
             raise ValueError("question_number must be greater than zero")
         path = self.session_dir / f"question_{question_number:02d}.mp4"
-        path.resolve().relative_to(self.session_dir.resolve())
         if path.exists():
             raise FileExistsError(f"Recording already exists: {path}")
         return path
 
     def mark_recording_started(self, question_number: int) -> None:
-        entry = self._question_entry(question_number)
-        entry["recording_started_at"] = _iso_timestamp(self.clock())
+        self._question_entry(question_number)["recording_started_at"] = _iso_timestamp(
+            self.clock()
+        )
         self._write_metadata()
 
     def mark_recording_complete(
-        self, question_number: int, result: RecordingResult
+        self,
+        question_number: int,
+        path: Path,
+        duration_seconds: float,
     ) -> None:
         entry = self._question_entry(question_number)
-        entry["recording"] = result.path.name
+        entry["recording"] = path.name
         entry["recording_completed_at"] = _iso_timestamp(self.clock())
-        entry["duration_seconds"] = round(result.duration_seconds, 3)
+        entry["duration_seconds"] = round(duration_seconds, 3)
         self._write_metadata()
 
     def finalize(self) -> None:
@@ -119,9 +123,8 @@ class SessionStorage:
         self._write_metadata()
 
     def _question_entry(self, question_number: int) -> dict[str, Any]:
-        entries = self.metadata["questions"]
         try:
-            entry = entries[question_number - 1]
+            entry = self.metadata["questions"][question_number - 1]
         except (IndexError, TypeError) as error:
             raise ValueError(f"Unknown question number: {question_number}") from error
         if entry["number"] != question_number:

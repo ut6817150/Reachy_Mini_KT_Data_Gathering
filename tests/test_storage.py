@@ -2,57 +2,46 @@
 
 from datetime import datetime, timezone
 import json
-from pathlib import Path
 import tempfile
 import unittest
 
-from scripts.configuration import (
-    ParticipantConfiguration,
-    ResearcherConfiguration,
-    VideoAspectRatio,
-)
-from scripts.device_discovery import CameraDevice, MicrophoneDevice
-from scripts.question_loader import Question
-from scripts.reachy_controller import ReachyConnectionConfig
-from scripts.recorder import RecordingResult
-from scripts.storage import SessionStorage
+from services.storage import SessionStorage, normalize_participant_id
 
 
-CAMERA = CameraDevice("0", "Camera", "avfoundation", 0)
-MICROPHONE = MicrophoneDevice("1", "Mic", "avfoundation")
-QUESTIONS = tuple(Question(number, f"Question {number}") for number in range(1, 11))
+QUESTIONS = tuple(f"Question {number}" for number in range(1, 11))
+REACHY_SETTINGS = {
+    "mode": "wired",
+    "wireless_host": "reachy-mini.local",
+}
 FIXED_TIME = datetime(2026, 7, 19, 10, 30, tzinfo=timezone.utc)
 
 
-def researcher_configuration() -> ResearcherConfiguration:
-    return ResearcherConfiguration(
-        reachy=ReachyConnectionConfig(),
-        cameras=(CAMERA,),
-        microphones=(MICROPHONE,),
-        default_camera=CAMERA,
-        default_microphone=MICROPHONE,
-    )
-
-
 class SessionStorageTests(unittest.TestCase):
+    def test_normalizes_participant_ids(self) -> None:
+        self.assertEqual(
+            normalize_participant_id("  Participant   one\ttrial 2  "),
+            "Participant_one_trial_2",
+        )
+        self.assertEqual(normalize_participant_id("group/person\\1"), "group_person_1")
+        with self.assertRaises(ValueError):
+            normalize_participant_id("   ")
+
     def test_creates_designated_participant_session_and_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             storage = SessionStorage.create(
                 temp_dir,
-                researcher_configuration(),
-                ParticipantConfiguration("p001", CAMERA, MICROPHONE),
+                "p001",
+                REACHY_SETTINGS,
                 QUESTIONS,
                 clock=lambda: FIXED_TIME,
             )
-
-            self.assertEqual(storage.session_dir.parent.name, "P001")
+            self.assertEqual(storage.session_dir.parent.name, "p001")
             self.assertTrue(storage.metadata_path.is_file())
             self.assertEqual(storage.recording_path(1).name, "question_01.mp4")
             payload = json.loads(storage.metadata_path.read_text(encoding="utf-8"))
-            self.assertEqual(payload["participant_id"], "P001")
+            self.assertEqual(payload["participant_id"], "p001")
             self.assertEqual(
-                payload["researcher_configuration"]["video_aspect_ratio"],
-                VideoAspectRatio.WIDESCREEN.value,
+                payload["researcher_configuration"]["camera"], "MacBook Pro Camera"
             )
             self.assertEqual(len(payload["questions"]), 10)
 
@@ -60,8 +49,8 @@ class SessionStorageTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             storage = SessionStorage.create(
                 temp_dir,
-                researcher_configuration(),
-                ParticipantConfiguration("P002", CAMERA, MICROPHONE),
+                "P002",
+                REACHY_SETTINGS,
                 QUESTIONS,
                 clock=lambda: FIXED_TIME,
             )
@@ -69,10 +58,10 @@ class SessionStorageTests(unittest.TestCase):
             storage.mark_recording_started(1)
             storage.mark_recording_complete(
                 1,
-                RecordingResult(recording_path, 12.3456, True, True),
+                recording_path,
+                12.3456,
             )
             storage.finalize()
-
             payload = json.loads(storage.metadata_path.read_text(encoding="utf-8"))
             self.assertTrue(payload["completed"])
             self.assertEqual(payload["questions"][0]["recording"], "question_01.mp4")

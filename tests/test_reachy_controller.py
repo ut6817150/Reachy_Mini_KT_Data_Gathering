@@ -1,23 +1,17 @@
-"""Hardware-independent tests for wired and wireless Reachy connectivity."""
+"""Hardware-independent checks for Reachy connectivity and actions."""
 
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
-from scripts.reachy_controller import (
-    ReachyConnectionConfig,
+from services.reachy_controller import (
+    CONNECTION_MODES,
+    WIRED,
+    WIRELESS,
     ReachyConnectionError,
     ReachyController,
-    ReachyNotConnectedError,
-    RobotConnectionMode,
-    connection_mode_labels,
 )
-
-
-class FakeClient:
-    def __init__(self, host: str, port: int) -> None:
-        self.host = host
-        self.port = port
 
 
 class FakeMedia:
@@ -33,18 +27,17 @@ class FakeMedia:
 
 
 class FakeRobot:
-    def __init__(self, *, resolved_mode: str, host: str, port: int) -> None:
-        self.connection_mode = resolved_mode
-        self.client = FakeClient(host, port)
+    def __init__(self, mode: str, host: str, port: int) -> None:
+        self.connection_mode = mode
+        self.client = type("Client", (), {"host": host, "port": port})()
         self.media = FakeMedia()
-        self.entered = False
         self.exited = False
         self.woke_up = False
         self.went_to_sleep = False
         self.played_moves: list[tuple[object, float, bool]] = []
+        self.goto_targets: list[dict[str, object]] = []
 
-    def __enter__(self) -> "FakeRobot":
-        self.entered = True
+    def __enter__(self):
         return self
 
     def __exit__(self, *_args: object) -> None:
@@ -56,199 +49,120 @@ class FakeRobot:
     def goto_sleep(self) -> None:
         self.went_to_sleep = True
 
-    def play_move(
-        self,
-        move: object,
-        *,
-        initial_goto_duration: float,
-        sound: bool = True,
-    ) -> None:
+    def play_move(self, move, *, initial_goto_duration: float, sound: bool) -> None:
         self.played_moves.append((move, initial_goto_duration, sound))
 
-
-class FakeEmotionLibrary:
-    def __init__(self) -> None:
-        self.requested: list[str] = []
-
-    def get(self, name: str) -> object:
-        self.requested.append(name)
-        return {"emotion": name}
+    def goto_target(self, **target: object) -> None:
+        self.goto_targets.append(target)
 
 
-class CapturingFactory:
+class Factory:
     def __init__(self, resolved_mode: str, host: str) -> None:
         self.resolved_mode = resolved_mode
         self.host = host
         self.calls: list[dict[str, object]] = []
         self.robot: FakeRobot | None = None
 
-    def __call__(self, **kwargs: object) -> FakeRobot:
-        self.calls.append(kwargs)
-        self.robot = FakeRobot(
-            resolved_mode=self.resolved_mode,
-            host=self.host,
-            port=int(kwargs["port"]),
-        )
+    def __call__(self, **settings: object) -> FakeRobot:
+        self.calls.append(settings)
+        self.robot = FakeRobot(self.resolved_mode, self.host, int(settings["port"]))
         return self.robot
 
 
-class ConnectionConfigTests(unittest.TestCase):
-    def test_maps_modes_to_sdk_values(self) -> None:
-        self.assertEqual(
-            ReachyConnectionConfig(mode=RobotConnectionMode.AUTO).sdk_connection_mode,
-            "auto",
-        )
-        self.assertEqual(
-            ReachyConnectionConfig(mode=RobotConnectionMode.WIRED).sdk_connection_mode,
-            "localhost_only",
-        )
-        self.assertEqual(
-            ReachyConnectionConfig(mode=RobotConnectionMode.WIRELESS).sdk_connection_mode,
-            "network",
-        )
-
-    def test_accepts_string_mode_and_trims_host(self) -> None:
-        config = ReachyConnectionConfig(mode="wireless", wireless_host=" 192.168.1.8 ")  # type: ignore[arg-type]
-        self.assertIs(config.mode, RobotConnectionMode.WIRELESS)
-        self.assertEqual(config.wireless_host, "192.168.1.8")
-
-    def test_rejects_url_instead_of_hostname(self) -> None:
-        with self.assertRaises(ValueError):
-            ReachyConnectionConfig(wireless_host="http://reachy-mini.local")
-
-    def test_exposes_three_start_page_labels(self) -> None:
-        options = connection_mode_labels()
-        self.assertEqual(len(options), 3)
-        self.assertIn(RobotConnectionMode.WIRED, options.values())
-        self.assertIn(RobotConnectionMode.WIRELESS, options.values())
-
-
 class ReachyControllerTests(unittest.TestCase):
-    def test_wired_connection_uses_localhost_without_spawning_daemon(self) -> None:
-        factory = CapturingFactory("localhost_only", "localhost")
-        controller = ReachyController(
-            ReachyConnectionConfig(mode=RobotConnectionMode.WIRED), factory=factory
-        )
+    def connect(self, controller: ReachyController, factory: Factory) -> str:
+        with patch(
+            "services.reachy_controller._load_reachy_factory", return_value=factory
+        ):
+            return controller.connect()
 
-        info = controller.connect()
+    def test_connection_options_are_plain_strings(self) -> None:
+        self.assertEqual(set(CONNECTION_MODES.values()), {WIRED, WIRELESS})
+        controller = ReachyController(WIRELESS, " 192.168.1.8 ")
+        self.assertEqual(controller.mode, WIRELESS)
+        self.assertEqual(controller.wireless_host, "192.168.1.8")
 
+    def test_wired_is_the_default_mode(self) -> None:
+        self.assertEqual(ReachyController().mode, WIRED)
+
+    def test_rejects_invalid_host(self) -> None:
+        with self.assertRaises(ValueError):
+            ReachyController(wireless_host="http://reachy-mini.local")
+
+    def test_wired_connection_uses_local_daemon(self) -> None:
+        factory = Factory("localhost_only", "localhost")
+        controller = ReachyController(WIRED)
+        label = self.connect(controller, factory)
         self.assertEqual(factory.calls[0]["connection_mode"], "localhost_only")
+        self.assertEqual(factory.calls[0]["host"], "localhost")
+        self.assertEqual(factory.calls[0]["port"], 8000)
+        self.assertEqual(factory.calls[0]["timeout"], 5.0)
         self.assertIs(factory.calls[0]["spawn_daemon"], False)
-        self.assertEqual(info.host, "localhost")
-        self.assertFalse(info.is_wireless)
+        self.assertEqual(label, "Wired / local: localhost:8000")
 
     def test_wireless_connection_uses_configured_host(self) -> None:
-        factory = CapturingFactory("network", "192.168.1.42")
-        controller = ReachyController(
-            ReachyConnectionConfig(
-                mode=RobotConnectionMode.WIRELESS,
-                wireless_host="192.168.1.42",
-            ),
-            factory=factory,
-        )
-
-        info = controller.connect()
-
+        factory = Factory("network", "192.168.1.42")
+        controller = ReachyController(WIRELESS, "192.168.1.42")
+        label = self.connect(controller, factory)
         self.assertEqual(factory.calls[0]["connection_mode"], "network")
         self.assertEqual(factory.calls[0]["host"], "192.168.1.42")
-        self.assertTrue(info.is_wireless)
+        self.assertEqual(label, "Wireless: 192.168.1.42:8000")
 
-    def test_auto_reports_the_route_selected_by_sdk(self) -> None:
-        factory = CapturingFactory("network", "reachy-mini.local")
-        controller = ReachyController(factory=factory)
-
-        info = controller.connect()
-
-        self.assertEqual(factory.calls[0]["connection_mode"], "auto")
-        self.assertEqual(info.resolved_mode, "network")
-
-    def test_disconnect_uses_sdk_context_manager_cleanup(self) -> None:
-        factory = CapturingFactory("localhost_only", "localhost")
-        controller = ReachyController(factory=factory)
-        controller.connect()
-
+    def test_disconnect_closes_the_sdk_context(self) -> None:
+        factory = Factory("localhost_only", "localhost")
+        controller = ReachyController()
+        self.connect(controller, factory)
         controller.disconnect()
-
         self.assertIsNotNone(factory.robot)
         self.assertTrue(factory.robot.exited)  # type: ignore[union-attr]
         self.assertFalse(controller.is_connected)
 
-    def test_robot_actions_require_connection(self) -> None:
-        controller = ReachyController(factory=CapturingFactory("network", "robot"))
-        with self.assertRaises(ReachyNotConnectedError):
-            controller.wake_up()
+    def test_actions_require_a_connection(self) -> None:
+        with self.assertRaises(ReachyConnectionError):
+            ReachyController().wake_up()
 
-    def test_play_sound_validates_file_and_uses_robot_media(self) -> None:
-        factory = CapturingFactory("localhost_only", "localhost")
-        controller = ReachyController(factory=factory)
-        controller.connect()
+    def test_sound_emotion_wake_and_sleep(self) -> None:
+        factory = Factory("localhost_only", "localhost")
+        controller = ReachyController()
+        self.connect(controller, factory)
+        emotions = type(
+            "Emotions", (), {"get": lambda _self, name: {"emotion": name}}
+        )()
+
         with tempfile.TemporaryDirectory() as temp_dir:
-            audio_path = Path(temp_dir) / "question.wav"
-            audio_path.touch()
+            sound = Path(temp_dir) / "speech.wav"
+            sound.touch()
+            controller.play_sound(sound)
+            controller.stop_sound()
+        with patch(
+            "services.reachy_controller._load_emotion_library",
+            return_value=emotions,
+        ):
+            controller.wake_up()
+            controller.play_emotion("welcoming1")
+            controller.goto_sleep()
 
-            controller.play_sound(audio_path)
+        robot = factory.robot
+        self.assertIsNotNone(robot)
+        self.assertTrue(robot.woke_up)  # type: ignore[union-attr]
+        self.assertTrue(robot.went_to_sleep)  # type: ignore[union-attr]
+        self.assertTrue(robot.media.stopped)  # type: ignore[union-attr]
+        self.assertEqual(robot.played_moves[-1][2], False)  # type: ignore[union-attr]
+        neutral = robot.goto_targets[-1]  # type: ignore[union-attr]
+        self.assertEqual(neutral["body_yaw"], 0.0)
+        self.assertEqual(neutral["duration"], 0.5)
+        self.assertIn("head", neutral)
+        self.assertIn("antennas", neutral)
 
-            self.assertEqual(factory.robot.media.played, [str(audio_path.resolve())])  # type: ignore[union-attr]
-
-    def test_stop_sound_uses_robot_media(self) -> None:
-        factory = CapturingFactory("localhost_only", "localhost")
-        controller = ReachyController(factory=factory)
-        controller.connect()
-
-        controller.stop_sound()
-
-        self.assertTrue(factory.robot.media.stopped)  # type: ignore[union-attr]
-
-    def test_wake_emotion_and_sleep_use_one_persistent_robot(self) -> None:
-        factory = CapturingFactory("localhost_only", "localhost")
-        emotions = FakeEmotionLibrary()
-        controller = ReachyController(
-            factory=factory,
-            emotion_library_factory=lambda: emotions,
-        )
-        controller.connect()
-
-        controller.wake_up()
-        controller.play_emotion("welcoming1")
-        controller.play_emotion("understanding1")
-        controller.goto_sleep()
-
-        self.assertIsNotNone(factory.robot)
-        self.assertTrue(factory.robot.woke_up)  # type: ignore[union-attr]
-        self.assertTrue(factory.robot.went_to_sleep)  # type: ignore[union-attr]
-        self.assertEqual(emotions.requested, ["welcoming1", "understanding1"])
-        self.assertEqual(
-            factory.robot.played_moves,  # type: ignore[union-attr]
-            [
-                ({"emotion": "welcoming1"}, 0.5, False),
-                ({"emotion": "understanding1"}, 0.5, False),
-            ],
-        )
-
-    def test_emotion_failure_has_an_actionable_message(self) -> None:
-        class MissingEmotionLibrary:
-            def get(self, _name: str) -> object:
-                raise KeyError("missing")
-
-        controller = ReachyController(
-            factory=CapturingFactory("localhost_only", "localhost"),
-            emotion_library_factory=MissingEmotionLibrary,
-        )
-        controller.connect()
-
-        with self.assertRaisesRegex(ReachyConnectionError, "unknown-emotion"):
-            controller.play_emotion("unknown-emotion")
-
-    def test_wraps_sdk_connection_failure(self) -> None:
-        def failing_factory(**_kwargs: object) -> object:
+    def test_connection_failure_has_useful_message(self) -> None:
+        def fail(**_settings: object):
             raise ConnectionError("offline")
 
-        controller = ReachyController(
-            ReachyConnectionConfig(mode=RobotConnectionMode.WIRELESS),
-            factory=failing_factory,
-        )
-        with self.assertRaisesRegex(ReachyConnectionError, "wireless Reachy Mini"):
-            controller.connect()
+        with patch(
+            "services.reachy_controller._load_reachy_factory", return_value=fail
+        ):
+            with self.assertRaisesRegex(ReachyConnectionError, "wireless Reachy Mini"):
+                ReachyController(WIRELESS).connect()
 
 
 if __name__ == "__main__":

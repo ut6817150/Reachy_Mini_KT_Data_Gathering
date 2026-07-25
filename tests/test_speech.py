@@ -1,4 +1,4 @@
-"""Tests for Reachy's local speech orchestration."""
+"""Tests for Reachy's prepared speech playback."""
 
 from pathlib import Path
 from threading import Barrier, Event, Thread
@@ -7,33 +7,17 @@ import unittest
 from unittest.mock import patch
 import wave
 
-from scripts.speech import RobotSpeaker
-
-
-class FakeSynthesizer:
-    def __init__(self, output: Path) -> None:
-        self.output = output
-        self.prepared = False
-
-    def synthesize(self, _text: str) -> Path:
-        self.prepared = True
-        return self.output
+from services.speech import RobotSpeaker
 
 
 class FakeReachy:
-    def __init__(self, synthesizer: FakeSynthesizer, barrier: Barrier) -> None:
-        self.synthesizer = synthesizer
+    def __init__(self, barrier: Barrier) -> None:
         self.barrier = barrier
         self.played: list[Path] = []
 
     def play_sound(self, path: str | Path) -> None:
-        self.assert_prepared()
         self.played.append(Path(path))
         self.barrier.wait(timeout=2.0)
-
-    def assert_prepared(self) -> None:
-        if not self.synthesizer.prepared:
-            raise AssertionError("Speech must be generated before synchronized playback")
 
 
 class CancellableReachy:
@@ -51,7 +35,7 @@ class CancellableReachy:
 
 
 class RobotSpeakerTests(unittest.TestCase):
-    def test_speak_during_starts_prepared_audio_and_movement_concurrently(self) -> None:
+    def test_play_during_starts_audio_and_movement_concurrently(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             audio_path = Path(temp_dir) / "message.wav"
             with wave.open(str(audio_path), "wb") as audio:
@@ -60,40 +44,37 @@ class RobotSpeakerTests(unittest.TestCase):
                 audio.setframerate(24_000)
                 audio.writeframes(b"")
             barrier = Barrier(2)
-            synthesizer = FakeSynthesizer(audio_path)
-            reachy = FakeReachy(synthesizer, barrier)
-            speaker = RobotSpeaker(synthesizer=synthesizer)  # type: ignore[arg-type]
+            reachy = FakeReachy(barrier)
+            speaker = RobotSpeaker()
             movement_started = False
 
             def movement() -> None:
                 nonlocal movement_started
-                reachy.assert_prepared()
                 movement_started = True
                 barrier.wait(timeout=2.0)
 
-            with patch("scripts.speech._wav_duration", return_value=0.0):
-                result = speaker.speak_during(  # type: ignore[arg-type]
+            with patch("services.speech._wav_duration", return_value=0.0):
+                result = speaker.play_during(  # type: ignore[arg-type]
                     reachy,
-                    "Let us continue.",
+                    audio_path,
                     movement,
                 )
 
             self.assertTrue(movement_started)
             self.assertEqual(reachy.played, [audio_path.resolve()])
-            self.assertEqual(result, audio_path)
+            self.assertEqual(result, audio_path.resolve())
 
     def test_stop_interrupts_active_voiceover(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             audio_path = Path(temp_dir) / "question.wav"
             audio_path.touch()
-            synthesizer = FakeSynthesizer(audio_path)
             reachy = CancellableReachy()
-            speaker = RobotSpeaker(synthesizer=synthesizer)  # type: ignore[arg-type]
+            speaker = RobotSpeaker()
 
-            with patch("scripts.speech._wav_duration", return_value=30.0):
+            with patch("services.speech._wav_duration", return_value=30.0):
                 worker = Thread(
-                    target=speaker.speak,
-                    args=(reachy, "A long question"),  # type: ignore[arg-type]
+                    target=speaker.play,
+                    args=(reachy, audio_path),  # type: ignore[arg-type]
                 )
                 worker.start()
                 self.assertTrue(reachy.sound_started.wait(timeout=1.0))

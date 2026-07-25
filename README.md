@@ -1,73 +1,79 @@
 # Reachy Mini Participant Study
 
 A local Streamlit application for conducting a ten-question participant study
-with Reachy Mini. The researcher selects an external camera and microphone,
-participants enter their ID, and the app records one synchronized MP4 response
+with Reachy Mini. It always uses the built-in MacBook Pro camera and microphone;
+participants enter their ID and the app records one synchronized MP4 response
 per question.
 
 ## Project structure
 
-- `streamlit_app.py` — Streamlit entry point
-- `scripts/` — experiment, robot, recording, device, question, and storage logic
+- `streamlit_app.py` — Streamlit configuration and page router
+- `ui/setup_pages.py` — researcher and participant setup pages
+- `ui/study_pages.py` — welcome, question loop, and completion pages
+- `ui/robot.py` — non-blocking Reachy speech and emotion UI
+- `ui/media.py` — five-second camera and microphone test UI
+- `ui/state.py` — navigation and Streamlit session state
+- `services/recorder.py` — synchronized MP4 recording with FFmpeg
+- `services/reachy_controller.py` — wired and wireless Reachy connection and actions
+- `services/speech.py` — prepared speech paths, validation, and Reachy playback
+- `services/generate_speech.py` — one-time macOS speech-file generator
+- `services/experiment_controller.py` — question-loop state
+- `services/question_loader.py` — Markdown question loading
+- `services/storage.py` — participant folders and session metadata
 - `questions/questions.md` — editable study questions
+- `assets/speech/default/` — default prepared WAV files and their text manifest
 - `recordings/` — participant/session folders containing MP4 recordings
 - `tests/` — automated checks that do not contain participant data
 
 ## Requirements
 
-- Python 3.11 or newer
+- macOS with Python 3.11 or newer
 - Reachy Mini Control with its daemon running
 - FFmpeg installed on the computer running Streamlit
 
-Development setup and usage instructions will be added as the application is
-implemented.
+## Recording devices
 
-## Device discovery diagnostic
-
-Once the requirements are installed, list the cameras and microphones visible
-to the application with:
-
-```bash
-python -m scripts.device_discovery
-```
-
-The command prints JSON containing recording identifiers, display names,
-backends, and any non-fatal setup warnings. FFmpeg-native identifiers are used
-when possible so the selected devices can later be passed directly to the
-recorder.
+There are no camera or microphone selectors. On macOS, FFmpeg opens
+`MacBook Pro Camera` and `MacBook Pro Microphone` directly by name. This avoids
+the changing numeric device indices caused by virtual cameras such as Reachy.
 
 ## Reachy Mini connection modes
 
-The application supports the same three routes as the Reachy Mini SDK:
+The application provides two explicit Reachy Mini connection modes:
 
-- **Automatic** — try the daemon on `localhost:8000`, then fall back to the
-  wireless host.
 - **Wired / Reachy Mini Lite** — connect only to the daemon started by Reachy
   Mini Control on `localhost:8000`.
 - **Wireless Reachy Mini** — connect to `reachy-mini.local:8000`, or a manually
   supplied hostname/IP address.
+
+The connection port and timeout are fixed at `8000` and five seconds, so the
+researcher only chooses wired or wireless and, for wireless, enters the host.
 
 The study application always uses `spawn_daemon=False`. Keep Reachy Mini Control
 open for a wired robot; a wireless robot uses its onboard daemon.
 
 ## Run the application
 
-Install the Python requirements and FFmpeg, then start Streamlit from the
-repository root:
+Install the Python requirements and FFmpeg. Then generate the speech files once
+and start Streamlit from the repository root:
 
 ```bash
 python -m pip install -r requirements.txt
+python -m services.generate_speech
 streamlit run streamlit_app.py
 ```
 
-The application starts with a researcher-only configuration screen. The
-researcher connects Reachy, can play a speaker test, selects default recording
-devices and a native, 16:9, or 4:3 video format, reviews a live camera preview,
-and records a five-second MP4 to verify camera and microphone input. Fixed
-ratios preserve the complete camera image by adding padding rather than cropping.
+Run the speech-generation command again whenever `questions/questions.md` or a
+fixed study message changes. Speech is generated before the study—not while a
+participant is waiting—and the app refuses to start a session if the prepared
+files no longer match the current questions.
 
-After setup, each participant enters their ID and uses the camera and microphone
-chosen by the researcher. They can record and play a temporary five-second clip,
+The application starts with a researcher-only configuration screen. The
+researcher connects Reachy, can play a speaker test, and records and reviews a
+five-second MP4 to verify the built-in camera and microphone. Recordings use a
+landscape 1920×1080 camera mode.
+
+After setup, each participant enters their ID. They can record and play a temporary five-second clip,
 with a visible countdown, to check the camera framing and microphone before
 starting. A welcome screen then asks participants to explain every answer aloud,
 including their reasoning and any numerical calculations, and Reachy reads the

@@ -1,34 +1,19 @@
 """Record synchronized camera video and microphone audio to MP4 with FFmpeg."""
 
-from __future__ import annotations
-
-from dataclasses import dataclass
-import json
 import math
 from pathlib import Path
 import shutil
 import subprocess
 import tempfile
 import time
-from typing import BinaryIO, Callable, Sequence
+from typing import Callable
 
-from scripts.configuration import VideoAspectRatio
-from scripts.device_discovery import CameraDevice, MicrophoneDevice
+CAMERA_NAME = "MacBook Pro Camera"
+MICROPHONE_NAME = "MacBook Pro Microphone"
 
 
 class RecordingError(RuntimeError):
     """Raised when recording cannot start or produce a valid audio/video MP4."""
-
-
-@dataclass(frozen=True, slots=True)
-class RecordingResult:
-    path: Path
-    duration_seconds: float
-    contains_video: bool
-    contains_audio: bool
-
-
-PopenFactory = Callable[..., subprocess.Popen[bytes]]
 
 
 def ffmpeg_path() -> str:
@@ -38,36 +23,17 @@ def ffmpeg_path() -> str:
     return executable
 
 
-def build_ffmpeg_command(
-    camera: CameraDevice,
-    microphone: MicrophoneDevice,
-    output_path: str | Path,
-    *,
-    executable: str = "ffmpeg",
-    aspect_ratio: VideoAspectRatio = VideoAspectRatio.WIDESCREEN,
-) -> list[str]:
-    """Build a shell-free FFmpeg command for a compatible device pair."""
+def build_ffmpeg_command(output_path: str | Path) -> list[str]:
+    """Build the fixed MacBook camera and microphone recording command."""
 
     output = str(Path(output_path))
     # Cameras and microphones have independent clocks, even when FFmpeg opens
     # them through one capture backend. Normalize the video clock and let the
     # audio resampler add/drop samples when its clock drifts. This also pads any
     # short startup delay with silence instead of shifting speech against video.
-    video_filter = "setpts=PTS-STARTPTS"
-    if aspect_ratio is VideoAspectRatio.WIDESCREEN:
-        video_filter += (
-            ",scale=1280:720:force_original_aspect_ratio=decrease"
-            ",pad=1280:720:(ow-iw)/2:(oh-ih)/2"
-        )
-    elif aspect_ratio is VideoAspectRatio.STANDARD:
-        video_filter += (
-            ",scale=960:720:force_original_aspect_ratio=decrease"
-            ",pad=960:720:(ow-iw)/2:(oh-ih)/2"
-        )
-
     synchronized_output = [
         "-vf",
-        video_filter,
+        "setpts=PTS-STARTPTS",
         "-af",
         "aresample=async=1000:first_pts=0",
         "-fps_mode:v",
@@ -88,128 +54,50 @@ def build_ffmpeg_command(
         output,
     ]
 
-    if camera.backend == "avfoundation" and microphone.backend == "avfoundation":
-        avfoundation_input = [
-            executable,
-            "-hide_banner",
-            "-loglevel",
-            "warning",
-            "-y",
-            "-f",
-            "avfoundation",
-            "-framerate",
-            "30",
-        ]
-        capture_size = camera.preferred_capture_size
-        if capture_size is not None:
-            avfoundation_input.extend(
-                ["-video_size", f"{capture_size[0]}x{capture_size[1]}"]
-            )
-        return [
-            *avfoundation_input,
-            "-i",
-            f"{camera.identifier}:{microphone.identifier}",
-            *synchronized_output,
-        ]
-
-    if camera.backend == "dshow" and microphone.backend == "dshow":
-        return [
-            executable,
-            "-hide_banner",
-            "-loglevel",
-            "warning",
-            "-y",
-            "-f",
-            "dshow",
-            "-i",
-            f"video={camera.identifier}:audio={microphone.identifier}",
-            *synchronized_output,
-        ]
-
-    if camera.backend == "v4l2" and microphone.backend == "pulse":
-        return [
-            executable,
-            "-hide_banner",
-            "-loglevel",
-            "warning",
-            "-y",
-            "-thread_queue_size",
-            "1024",
-            "-use_wallclock_as_timestamps",
-            "1",
-            "-f",
-            "v4l2",
-            "-framerate",
-            "30",
-            "-i",
-            camera.identifier,
-            "-thread_queue_size",
-            "1024",
-            "-use_wallclock_as_timestamps",
-            "1",
-            "-f",
-            "pulse",
-            "-i",
-            microphone.identifier,
-            "-map",
-            "0:v:0",
-            "-map",
-            "1:a:0",
-            *synchronized_output,
-        ]
-
-    raise RecordingError(
-        "The selected camera and microphone are fallback devices and cannot yet be "
-        "passed to FFmpeg together. Install FFmpeg, refresh devices, and select the "
-        "FFmpeg-discovered entries."
-    )
+    return [
+        ffmpeg_path(),
+        "-hide_banner",
+        "-loglevel",
+        "warning",
+        "-y",
+        "-f",
+        "avfoundation",
+        # AVFoundation otherwise defaults to 29.97 fps, which the built-in
+        # camera can reject even though it supports an exact 30 fps mode.
+        "-framerate",
+        "30",
+        "-video_size",
+        "1920x1080",
+        # Names are stable even when macOS changes AVFoundation indices.
+        "-i",
+        f"{CAMERA_NAME}:{MICROPHONE_NAME}",
+        *synchronized_output,
+    ]
 
 
 class FFmpegRecorder:
     """Manage one FFmpeg process and finalize its MP4 gracefully."""
 
-    def __init__(
-        self,
-        camera: CameraDevice,
-        microphone: MicrophoneDevice,
-        output_path: str | Path,
-        *,
-        executable: str | None = None,
-        popen_factory: PopenFactory = subprocess.Popen,
-        aspect_ratio: VideoAspectRatio = VideoAspectRatio.WIDESCREEN,
-    ) -> None:
-        self.camera = camera
-        self.microphone = microphone
+    def __init__(self, output_path: str | Path) -> None:
         self.output_path = Path(output_path).expanduser().resolve()
-        self.executable = executable or ffmpeg_path()
-        self.aspect_ratio = aspect_ratio
-        self._popen_factory = popen_factory
         self._process: subprocess.Popen[bytes] | None = None
-        self._log_file: BinaryIO | None = None
+        self._log_file = None
         self._log_path = self.output_path.with_suffix(".ffmpeg.log")
         self._started_at: float | None = None
-
-    @property
-    def is_recording(self) -> bool:
-        return self._process is not None and self._process.poll() is None
 
     def start(self) -> None:
         if self._process is not None:
             raise RecordingError("This recorder has already been started.")
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
         if self.output_path.exists():
-            raise FileExistsError(f"Refusing to overwrite recording: {self.output_path}")
+            raise FileExistsError(
+                f"Refusing to overwrite recording: {self.output_path}"
+            )
 
-        command = build_ffmpeg_command(
-            self.camera,
-            self.microphone,
-            self.output_path,
-            executable=self.executable,
-            aspect_ratio=self.aspect_ratio,
-        )
+        command = build_ffmpeg_command(self.output_path)
         self._log_file = self._log_path.open("wb")
         try:
-            self._process = self._popen_factory(
+            self._process = subprocess.Popen(
                 command,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.DEVNULL,
@@ -231,7 +119,7 @@ class FFmpegRecorder:
             self._log_path.unlink(missing_ok=True)
             raise RecordingError(f"FFmpeg stopped during startup. {message}")
 
-    def stop(self, timeout_seconds: float = 12.0) -> RecordingResult:
+    def stop(self, timeout_seconds: float = 12.0) -> tuple[Path, float]:
         process = self._process
         if process is None or self._started_at is None:
             raise RecordingError("No recording is active.")
@@ -243,12 +131,7 @@ class FFmpegRecorder:
                     process.stdin.flush()
                 process.wait(timeout=timeout_seconds)
             except (BrokenPipeError, subprocess.TimeoutExpired):
-                process.terminate()
-                try:
-                    process.wait(timeout=3.0)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=3.0)
+                self._terminate(process)
 
         duration = max(0.0, time.monotonic() - self._started_at)
         return_code = process.returncode
@@ -267,12 +150,7 @@ class FFmpegRecorder:
             missing = "video" if not contains_video else "audio"
             raise RecordingError(f"The recording is missing its {missing} stream.")
         self._log_path.unlink(missing_ok=True)
-        return RecordingResult(
-            path=self.output_path,
-            duration_seconds=duration,
-            contains_video=contains_video,
-            contains_audio=contains_audio,
-        )
+        return self.output_path, duration
 
     def cancel(self) -> None:
         """Stop without preserving a possibly partial output file."""
@@ -280,12 +158,7 @@ class FFmpegRecorder:
         process = self._process
         self._process = None
         if process is not None and process.poll() is None:
-            process.terminate()
-            try:
-                process.wait(timeout=3.0)
-            except subprocess.TimeoutExpired:
-                process.kill()
-                process.wait(timeout=3.0)
+            self._terminate(process)
         self._close_log()
         self.output_path.unlink(missing_ok=True)
         self._log_path.unlink(missing_ok=True)
@@ -295,12 +168,21 @@ class FFmpegRecorder:
             self._log_file.close()
             self._log_file = None
 
-    def _read_log_tail(self, character_limit: int = 1200) -> str:
+    @staticmethod
+    def _terminate(process: subprocess.Popen[bytes]) -> None:
+        process.terminate()
+        try:
+            process.wait(timeout=3.0)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait(timeout=3.0)
+
+    def _read_log_tail(self) -> str:
         try:
             text = self._log_path.read_text(encoding="utf-8", errors="replace")
         except OSError:
             return ""
-        return text[-character_limit:].strip()
+        return text[-1200:].strip()
 
 
 def probe_recording(path: str | Path) -> tuple[bool, bool]:
@@ -322,7 +204,7 @@ def probe_recording(path: str | Path) -> tuple[bool, bool]:
             "-show_entries",
             "stream=codec_type",
             "-of",
-            "json",
+            "default=noprint_wrappers=1:nokey=1",
             str(Path(path)),
         ],
         capture_output=True,
@@ -332,46 +214,27 @@ def probe_recording(path: str | Path) -> tuple[bool, bool]:
     )
     if completed.returncode != 0:
         raise RecordingError(f"Could not inspect recording: {completed.stderr.strip()}")
-    try:
-        payload = json.loads(completed.stdout)
-        stream_types = {stream.get("codec_type") for stream in payload.get("streams", [])}
-    except (json.JSONDecodeError, AttributeError) as error:
-        raise RecordingError("FFprobe returned invalid stream information.") from error
+    stream_types = set(completed.stdout.splitlines())
     return "video" in stream_types, "audio" in stream_types
 
 
-def test_recording_path(test_kind: str = "researcher") -> Path:
-    """Return a stable temporary path outside participant recordings."""
-
-    if test_kind not in {"researcher", "participant"}:
-        raise ValueError("test_kind must be 'researcher' or 'participant'")
-
-    directory = Path(tempfile.gettempdir()) / "reachy-mini-participant-study"
-    directory.mkdir(parents=True, exist_ok=True)
-    return directory / f"{test_kind}_device_test.mp4"
-
-
 def record_device_test(
-    camera: CameraDevice,
-    microphone: MicrophoneDevice,
     *,
     duration_seconds: float = 5.0,
     test_kind: str = "researcher",
     countdown_callback: Callable[[int], None] | None = None,
-    aspect_ratio: VideoAspectRatio = VideoAspectRatio.WIDESCREEN,
-) -> RecordingResult:
+) -> Path:
     """Create a short blocking recording for device-check playback."""
 
     if duration_seconds <= 0:
         raise ValueError("duration_seconds must be greater than zero")
-    output = test_recording_path(test_kind)
+    if test_kind not in {"researcher", "participant"}:
+        raise ValueError("Unknown device test kind")
+    directory = Path(tempfile.gettempdir()) / "reachy-mini-participant-study"
+    directory.mkdir(parents=True, exist_ok=True)
+    output = directory / f"{test_kind}_device_test.mp4"
     output.unlink(missing_ok=True)
-    recorder = FFmpegRecorder(
-        camera,
-        microphone,
-        output,
-        aspect_ratio=aspect_ratio,
-    )
+    recorder = FFmpegRecorder(output)
     try:
         recorder.start()
         deadline = time.monotonic() + duration_seconds
@@ -387,7 +250,8 @@ def record_device_test(
             time.sleep(min(0.1, remaining))
         if countdown_callback is not None:
             countdown_callback(0)
-        return recorder.stop()
+        path, _ = recorder.stop()
+        return path
     except Exception:
         recorder.cancel()
         raise
