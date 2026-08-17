@@ -44,7 +44,7 @@ A test detects a disease whose prevalence is 1 in 1000. Whenever a person has th
 
 ## Question 10
 
-Two machines M1 and M2 produce balls. Machine M1 produces 40 percent and M2 60 percent of balls. 5 percent of the balls produced by M1 and 1 percent of those produced by M2 are defective. We take a ball at random and it is defective. What is the probability that the ball was produced by machine M1? Explain how you arrived at your answer.
+Two machines M-1 and M-2 produce balls. Machine M-1 produces 40 percent and M-2 60 percent of balls. 5 percent of the balls produced by M-1 and 1 percent of those produced by M-2 are defective. We take a ball at random and it is defective. What is the probability that the ball was produced by machine M-1? Explain how you arrived at your answer.
 
 ## Question 11
 
