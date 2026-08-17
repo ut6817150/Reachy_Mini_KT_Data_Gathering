@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 import wave
 
-from services.speech import RobotSpeaker
+from services.speech import RobotSpeaker, expected_speech_assets
 
 
 class FakeReachy:
@@ -35,6 +35,14 @@ class CancellableReachy:
 
 
 class RobotSpeakerTests(unittest.TestCase):
+    def test_speech_assets_use_question_zero_through_twelve(self) -> None:
+        questions = tuple(f"Question {number}" for number in range(13))
+        assets = expected_speech_assets(questions)
+        question_files = [name for name in assets if name.startswith("question_")]
+        self.assertEqual(question_files[0], "question_00.wav")
+        self.assertEqual(question_files[-1], "question_12.wav")
+        self.assertEqual(len(question_files), 13)
+
     def test_play_during_starts_audio_and_movement_concurrently(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             audio_path = Path(temp_dir) / "message.wav"

@@ -81,8 +81,13 @@ def render_experiment_page() -> None:
     show_participant_notice()
     question = experiment.current_question
     question_number = experiment.question_number
-    st.caption(f"Question {question_number} of {len(experiment.questions)}")
-    st.progress(question_number / len(experiment.questions))
+    scored_question_count = len(experiment.questions) - 1
+    if question_number == 0:
+        st.caption("Practice Question (unscored)")
+        st.progress(0.0)
+    else:
+        st.caption(f"Question {question_number} of {scored_question_count}")
+        st.progress(question_number / scored_question_count)
     render_question_text(question)
 
     if wait_for_robot():
@@ -153,7 +158,12 @@ def render_experiment_page() -> None:
     elif experiment.stage == AWAITING_CONTINUE:
         final_question = experiment.question_index == len(experiment.questions) - 1
         st.success("Your response has been saved.")
-        button_label = "Finish" if final_question else "Next Question"
+        if final_question:
+            button_label = "Finish"
+        elif question_number == 0:
+            button_label = "Begin Question 1"
+        else:
+            button_label = "Next Question"
         if st.button(button_label, type="primary", width="stretch"):
             if experiment.continue_after_response():
                 navigate_to(PAGE_COMPLETE)

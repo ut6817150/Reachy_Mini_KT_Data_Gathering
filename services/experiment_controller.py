@@ -1,4 +1,4 @@
-"""State machine for one participant's ten-question interaction."""
+"""State machine for the practice question and twelve scored questions."""
 
 QUESTION_READY = "question_ready"
 RECORDING = "recording"
@@ -19,7 +19,7 @@ class ExperimentController:
 
     @property
     def question_number(self) -> int:
-        return self.question_index + 1
+        return self.question_index
 
     def begin_response(self) -> None:
         if self.stage != QUESTION_READY:

@@ -1,10 +1,13 @@
-"""Load and validate the ten study questions from Markdown."""
+"""Load and validate Question 0 and the twelve scored study questions."""
 
 from pathlib import Path
 import re
 
 
 QUESTION_HEADING = r"^##\s+Question\s+(\d+)\s*$"
+FIRST_QUESTION_NUMBER = 0
+LAST_QUESTION_NUMBER = 12
+QUESTION_COUNT = LAST_QUESTION_NUMBER - FIRST_QUESTION_NUMBER + 1
 
 
 class QuestionFormatError(ValueError):
@@ -17,17 +20,19 @@ def parse_questions(markdown: str) -> tuple[str, ...]:
     parts = re.split(QUESTION_HEADING, markdown, flags=re.IGNORECASE | re.MULTILINE)
     sections = list(zip(parts[1::2], parts[2::2]))
 
-    if len(sections) != 10:
+    if len(sections) != QUESTION_COUNT:
         raise QuestionFormatError(
-            f"Expected 10 questions, found {len(sections)}. "
-            "Use headings such as '## Question 1'."
+            f"Expected Question 0 through Question 12 ({QUESTION_COUNT} sections), "
+            f"found {len(sections)}. Use headings such as '## Question 0'."
         )
 
     questions: list[str] = []
-    for expected_number, (number, text) in enumerate(sections, start=1):
+    for expected_number, (number, text) in enumerate(
+        sections, start=FIRST_QUESTION_NUMBER
+    ):
         if int(number) != expected_number:
             raise QuestionFormatError(
-                "Question headings must be sequential from 1 to 10; "
+                "Question headings must be sequential from 0 to 12; "
                 f"expected Question {expected_number}, found Question {number}."
             )
         text = text.strip()

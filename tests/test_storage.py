@@ -8,7 +8,7 @@ import unittest
 from services.storage import SessionStorage, normalize_participant_id
 
 
-QUESTIONS = tuple(f"Question {number}" for number in range(1, 11))
+QUESTIONS = tuple(f"Question {number}" for number in range(13))
 REACHY_SETTINGS = {
     "mode": "wired",
     "wireless_host": "reachy-mini.local",
@@ -37,13 +37,17 @@ class SessionStorageTests(unittest.TestCase):
             )
             self.assertEqual(storage.session_dir.parent.name, "p001")
             self.assertTrue(storage.metadata_path.is_file())
-            self.assertEqual(storage.recording_path(1).name, "question_01.mp4")
+            self.assertEqual(storage.recording_path(0).name, "question_00.mp4")
             payload = json.loads(storage.metadata_path.read_text(encoding="utf-8"))
             self.assertEqual(payload["participant_id"], "p001")
             self.assertEqual(
                 payload["researcher_configuration"]["camera"], "MacBook Pro Camera"
             )
-            self.assertEqual(len(payload["questions"]), 10)
+            self.assertEqual(len(payload["questions"]), 13)
+            self.assertEqual(payload["schema_version"], 2)
+            self.assertEqual(payload["questions"][-1]["number"], 12)
+            self.assertFalse(payload["questions"][0]["scored"])
+            self.assertTrue(payload["questions"][1]["scored"])
 
     def test_updates_recording_and_finalizes_atomically(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -54,17 +58,17 @@ class SessionStorageTests(unittest.TestCase):
                 QUESTIONS,
                 clock=lambda: FIXED_TIME,
             )
-            recording_path = storage.session_dir / "question_01.mp4"
-            storage.mark_recording_started(1)
+            recording_path = storage.session_dir / "question_00.mp4"
+            storage.mark_recording_started(0)
             storage.mark_recording_complete(
-                1,
+                0,
                 recording_path,
                 12.3456,
             )
             storage.finalize()
             payload = json.loads(storage.metadata_path.read_text(encoding="utf-8"))
             self.assertTrue(payload["completed"])
-            self.assertEqual(payload["questions"][0]["recording"], "question_01.mp4")
+            self.assertEqual(payload["questions"][0]["recording"], "question_00.mp4")
             self.assertEqual(payload["questions"][0]["duration_seconds"], 12.346)
             self.assertFalse(storage.metadata_path.with_suffix(".json.tmp").exists())
 

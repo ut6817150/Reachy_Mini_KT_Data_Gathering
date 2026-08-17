@@ -64,7 +64,7 @@ class SessionStorage:
         session_dir.resolve().relative_to(root_path)
 
         metadata = {
-            "schema_version": 1,
+            "schema_version": 2,
             "participant_id": participant_id,
             "session_id": session_id,
             "started_at": _iso_timestamp(now),
@@ -78,13 +78,14 @@ class SessionStorage:
             "questions": [
                 {
                     "number": number,
+                    "scored": number != 0,
                     "text": text,
                     "recording": None,
                     "recording_started_at": None,
                     "recording_completed_at": None,
                     "duration_seconds": None,
                 }
-                for number, text in enumerate(questions, start=1)
+                for number, text in enumerate(questions)
             ],
         }
         storage = cls(session_dir, metadata, clock)
@@ -92,8 +93,8 @@ class SessionStorage:
         return storage
 
     def recording_path(self, question_number: int) -> Path:
-        if question_number <= 0:
-            raise ValueError("question_number must be greater than zero")
+        if question_number < 0:
+            raise ValueError("question_number cannot be negative")
         path = self.session_dir / f"question_{question_number:02d}.mp4"
         if path.exists():
             raise FileExistsError(f"Recording already exists: {path}")
@@ -124,7 +125,7 @@ class SessionStorage:
 
     def _question_entry(self, question_number: int) -> dict[str, Any]:
         try:
-            entry = self.metadata["questions"][question_number - 1]
+            entry = self.metadata["questions"][question_number]
         except (IndexError, TypeError) as error:
             raise ValueError(f"Unknown question number: {question_number}") from error
         if entry["number"] != question_number:

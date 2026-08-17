@@ -14,10 +14,10 @@ SPEECH_DIR = Path(__file__).resolve().parents[1] / "assets" / "speech" / "defaul
 MANIFEST_PATH = SPEECH_DIR / "manifest.json"
 
 WELCOME_MESSAGE = (
-    "Welcome, and thank you for taking part in this study. You will be asked "
-    "10 questions. For every question, please answer aloud and explain how you "
-    "arrived at your answer. Include any numerical calculations you use, and "
-    "say each step out loud."
+    "Welcome, and thank you for taking part in this study. You will first complete "
+    "one unscored practice question, followed by 12 study questions. For every "
+    "question, please answer aloud and explain how you arrived at your answer. "
+    "Include any numerical calculations you use, and say each step out loud."
 )
 
 FIXED_SPEECH = {
@@ -42,7 +42,7 @@ def expected_speech_assets(questions: tuple[str, ...]) -> dict[str, str]:
     assets.update(
         {
             f"question_{number:02d}.wav": text
-            for number, text in enumerate(questions, start=1)
+            for number, text in enumerate(questions)
         }
     )
     return assets

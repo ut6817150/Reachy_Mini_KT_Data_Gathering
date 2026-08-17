@@ -1,9 +1,28 @@
 # Reachy Mini Participant Study
 
-A local Streamlit application for conducting a ten-question participant study
-with Reachy Mini. It always uses the built-in MacBook Pro camera and microphone;
-participants enter their ID and the app records one synchronized MP4 response
-per question.
+A local Streamlit application for conducting one unscored practice question and
+twelve scored study questions with Reachy Mini. It always uses the built-in
+MacBook Pro camera and microphone; participants enter their ID and the app
+records one synchronized MP4 response per question.
+
+## Study workflow
+
+1. The researcher selects a wired or wireless Reachy Mini connection.
+2. The researcher connects Reachy, runs its speaker test, and records a mandatory
+   five-second camera and microphone test.
+3. The participant enters an ID. Leading and trailing spaces are removed, and
+   spaces within the ID become underscores for the participant folder name.
+4. The participant may record an optional five-second device-check clip. This is
+   separate from the recorded Question 0 warm-up.
+5. Reachy wakes, welcomes the participant, and explains how to answer.
+6. Reachy presents unscored Question 0 as a warm-up, followed by scored Questions
+   1–12. The participant may repeat or skip each prepared voiceover.
+7. The participant selects **Begin response**, answers aloud, and selects
+   **End Response** to save the MP4.
+8. Reachy acknowledges the response while emoting, then returns to neutral.
+   The participant selects **Next Question** when ready.
+9. After Question 12, **Finish** opens the completion page. **End session**
+   finalizes the metadata, puts Reachy to sleep, and returns to participant setup.
 
 ## Project structure
 
@@ -28,14 +47,20 @@ per question.
 ## Requirements
 
 - macOS with Python 3.11 or newer
-- Reachy Mini Control with its daemon running
+- Reachy Mini Control for a wired connection or wireless robot setup
 - FFmpeg installed on the computer running Streamlit
+- A physical Reachy Mini running a compatible daemon
 
 ## Recording devices
 
 There are no camera or microphone selectors. On macOS, FFmpeg opens
 `MacBook Pro Camera` and `MacBook Pro Microphone` directly by name. This avoids
 the changing numeric device indices caused by virtual cameras such as Reachy.
+
+FFmpeg requests an exact `1920x1080` landscape input at 30 fps, then creates an
+H.264/AAC MP4. Video timestamps and asynchronous audio resampling are used to
+limit camera/microphone drift. macOS must grant camera and microphone permission
+to the terminal or application that starts Streamlit.
 
 ## Reachy Mini connection modes
 
@@ -50,48 +75,99 @@ The connection port and timeout are fixed at `8000` and five seconds, so the
 researcher only chooses wired or wireless and, for wireless, enters the host.
 
 The study application always uses `spawn_daemon=False`. Keep Reachy Mini Control
-open for a wired robot; a wireless robot uses its onboard daemon.
+open for a wired robot; a wireless robot uses its onboard daemon. The computer
+and a wireless robot must be on the same network. If `reachy-mini.local` does not
+resolve, enter the robot's IP address shown by Reachy Mini Control.
+
+The connection remains active across participant sessions. Reachy speech and
+recorded emotions use the same connection.
+
+## Prepared speech
+
+Participant sessions do not generate speech live. The default voice set contains
+18 prepared files:
+
+- one speaker test;
+- one welcome message;
+- three acknowledgement/completion messages;
+- one practice-question voiceover and twelve scored-question voiceovers.
+
+The files are stored in `assets/speech/default/` as mono, 16-bit, 24 kHz WAV
+audio. `manifest.json` records the exact source text for every file. When a
+participant starts, the application verifies that all files exist and that the
+manifest still matches `questions/questions.md`.
+
+The generator uses the macOS `say` command:
+
+```bash
+python -m services.generate_speech
+```
+
+Run it again whenever a question or fixed study message changes. Other prepared
+voice sets can be placed under `assets/speech/` in the future, but the application
+currently uses `assets/speech/default/`.
 
 ## Run the application
 
-Install the Python requirements and FFmpeg. Then generate the speech files once
-and start Streamlit from the repository root:
+From the repository root, create or activate a Python environment, install the
+requirements, prepare the speech files, and start Streamlit:
 
 ```bash
+python3 -m venv .venv
+source .venv/bin/activate
 python -m pip install -r requirements.txt
 python -m services.generate_speech
 streamlit run streamlit_app.py
 ```
 
-Run the speech-generation command again whenever `questions/questions.md` or a
-fixed study message changes. Speech is generated before the study—not while a
-participant is waiting—and the app refuses to start a session if the prepared
-files no longer match the current questions.
+Open the local URL printed by Streamlit, normally:
+
+```text
+http://localhost:8501
+```
+
+Install FFmpeg first if it is unavailable:
+
+```bash
+brew install ffmpeg
+```
+
+## Researcher configuration
 
 The application starts with a researcher-only configuration screen. The
 researcher connects Reachy, can play a speaker test, and records and reviews a
 five-second MP4 to verify the built-in camera and microphone. Recordings use a
 landscape 1920×1080 camera mode.
 
-After setup, each participant enters their ID. They can record and play a temporary five-second clip,
-with a visible countdown, to check the camera framing and microphone before
-starting. A welcome screen then asks participants to explain every answer aloud,
-including their reasoning and any numerical calculations, and Reachy reads the
-same welcome instructions aloud. Reachy then asks each question, the participant
-can select **Skip Voiceover** to stop the question audio early, starts and ends
-one MP4 recording per response, and the app advances through all ten questions.
-After each response is saved and Reachy finishes acknowledging
-it, the participant presses **Next Question** to advance. After Question 10 this
-button becomes **Finish**. Ending the session returns to a clean participant
-start page while retaining the researcher configuration and Reachy connection.
-On the participant setup screen, researcher settings remain available from the
-collapsed sidebar rather than appearing in the participant-facing form.
+Both the Reachy connection and reviewed researcher recording test are required
+before **Begin participant sessions** is enabled. On participant setup,
+researcher settings remain available in the collapsed sidebar.
+
+## Participant interaction
+
+The optional participant device-check clip has a visible five-second countdown
+and is stored only in the system temporary directory. It is not copied into
+study data and is separate from the recorded Question 0 warm-up.
+
+The welcome page asks participants to explain every answer aloud, including
+their reasoning and numerical calculations. Reachy reads the same instructions.
+Each question remains visible while Reachy speaks it. Recording starts only
+after **Begin response** is selected and stops when **End Response** is selected.
+
+After the practice response is saved, **Begin Question 1** starts the scored
+sequence. For scored responses, Reachy speaks and emotes at the same time and
+**Next Question** is shown only after that response finishes. After Question 12
+the button becomes **Finish**.
 
 Reachy wakes and plays `welcoming1` when a participant starts. It remains awake
 and still during response recordings, plays `understanding1` between ordinary
-questions, `enthusiastic2` before the final question, and `grateful1` when the
-interaction is complete. Pressing **End session** puts Reachy to sleep before
-returning to the next participant's start page.
+questions, `enthusiastic2` before Question 12, and `grateful1` when the
+interaction is complete. Emotion sounds are disabled because the prepared study
+speech plays separately. After every emotion, Reachy smoothly returns its head,
+antennas, and body yaw to neutral over 0.5 seconds. Pressing **End session** puts
+Reachy to sleep before returning to the next participant's start page.
+
+## Study data
 
 Recordings are stored as:
 
@@ -99,10 +175,24 @@ Recordings are stored as:
 recordings/
 └── PARTICIPANT_ID/
     └── session_YYYYMMDD_HHMMSS_.../
+        ├── question_00.mp4  # unscored practice response
         ├── question_01.mp4
         ├── ...
-        ├── question_10.mp4
+        ├── question_12.mp4
         └── session.json
 ```
 
-The application contains no transcription or LLM grading code.
+`session.json` stores the normalized participant ID, timestamps, Reachy
+configuration, question text, scoring status, recording filenames, and response
+durations. Question 0 has `"scored": false`; Questions 1–12 have
+`"scored": true`.
+
+The application contains no transcription, live TTS, or LLM grading code.
+
+## Tests
+
+Run the hardware-independent test suite with:
+
+```bash
+python -m pytest -q
+```
