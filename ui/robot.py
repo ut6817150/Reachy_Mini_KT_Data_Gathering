@@ -20,7 +20,6 @@ def queue_robot_response(
     *,
     emotion: str,
     audio_path: Path,
-    wake_up: bool = False,
     status: str = "Reachy is responding…",
 ) -> None:
     """Queue work to start after the destination page is visible."""
@@ -28,7 +27,6 @@ def queue_robot_response(
     st.session_state["pending_robot_response"] = {
         "emotion": emotion,
         "audio_path": audio_path,
-        "wake_up": wake_up,
         "status": status,
     }
 
@@ -72,8 +70,6 @@ def start_pending_robot_response() -> None:
     speaker = st.session_state["robot_speaker"]
 
     def perform_response() -> None:
-        if pending.get("wake_up") is True:
-            controller.wake_up()
         speaker.play_during(
             controller,
             pending["audio_path"],

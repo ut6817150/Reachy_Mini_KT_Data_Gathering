@@ -8,13 +8,13 @@ records one synchronized MP4 response per question.
 ## Study workflow
 
 1. The researcher selects a wired or wireless Reachy Mini connection.
-2. The researcher connects Reachy, runs its speaker test, and records a mandatory
-   five-second camera and microphone test.
+2. The researcher connects and wakes Reachy, runs its speaker test, and records
+   a mandatory five-second camera and microphone test.
 3. The participant enters an ID. Leading and trailing spaces are removed, and
    spaces within the ID become underscores for the participant folder name.
 4. The participant may record an optional five-second device-check clip. This is
    separate from the recorded Question 0 warm-up.
-5. Reachy wakes, welcomes the participant, and explains how to answer.
+5. Reachy welcomes the participant and explains how to answer.
 6. Reachy presents unscored Question 0 as a warm-up, followed by scored Questions
    1–12. The participant may repeat or skip each prepared voiceover.
 7. The participant selects **Begin response**, answers aloud, and selects
@@ -80,7 +80,11 @@ and a wireless robot must be on the same network. If `reachy-mini.local` does no
 resolve, enter the robot's IP address shown by Reachy Mini Control.
 
 The connection remains active across participant sessions. Reachy speech and
-recorded emotions use the same connection.
+recorded emotions use the same connection. During researcher connection, wired
+Reachy uses the speech files directly from the laptop. Wireless Reachy receives
+each prepared WAV once and reuses the robot-side copy for low-latency playback
+throughout subsequent participant sessions. Reconnecting after a robot restart
+uploads the files again.
 
 ## Prepared speech
 
@@ -159,8 +163,9 @@ sequence. For scored responses, Reachy speaks and emotes at the same time and
 **Next Question** is shown only after that response finishes. After Question 12
 the button becomes **Finish**.
 
-Reachy wakes and plays `welcoming1` when a participant starts. It remains awake
-and still during response recordings, plays `understanding1` between ordinary
+The researcher wakes Reachy from the researcher configuration page. Starting a
+participant session does not send another wake command. Reachy remains awake and
+still during response recordings, plays `understanding1` between ordinary
 questions, `enthusiastic2` before Question 12, and `grateful1` when the
 interaction is complete. Emotion sounds are disabled because the prepared study
 speech plays separately. After every emotion, Reachy smoothly returns its head,

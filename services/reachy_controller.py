@@ -1,5 +1,6 @@
 """Connect to Reachy Mini and expose the robot actions used by the study."""
 
+from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
 
@@ -67,6 +68,7 @@ class ReachyController:
         self._robot: Any | None = None
         self._emotion_library: Any | None = None
         self._connection_label: str | None = None
+        self._prepared_sounds: dict[Path, str] = {}
 
     @property
     def is_connected(self) -> bool:
@@ -123,6 +125,7 @@ class ReachyController:
         robot = self._robot
         self._robot = None
         self._connection_label = None
+        self._prepared_sounds.clear()
         if robot is None:
             return
 
@@ -137,11 +140,46 @@ class ReachyController:
         if callable(getattr(client, "disconnect", None)):
             client.disconnect()
 
+    def prepare_sounds(self, audio_paths: Iterable[str | Path]) -> int:
+        """Prepare local speech files for low-latency playback."""
+
+        paths = [Path(path).expanduser().resolve() for path in audio_paths]
+        for path in paths:
+            if not path.is_file():
+                raise FileNotFoundError(f"Robot speech file does not exist: {path}")
+
+        if self.mode == WIRED:
+            self._prepared_sounds.update({path: str(path) for path in paths})
+            return len(paths)
+
+        audio_backend = getattr(self.robot.media, "audio", None)
+        upload_sound = getattr(audio_backend, "upload_sound", None)
+        if not callable(upload_sound):
+            raise ReachyConnectionError(
+                "Reachy's wireless audio backend cannot upload prepared speech."
+            )
+
+        try:
+            prepared = {path: str(upload_sound(str(path))) for path in paths}
+        except Exception as error:
+            raise ReachyConnectionError(
+                "Could not upload the prepared speech files to wireless Reachy."
+            ) from error
+
+        self._prepared_sounds.update(prepared)
+        return len(paths)
+
     def play_sound(self, audio_path: str | Path) -> None:
         path = Path(audio_path).expanduser().resolve()
         if not path.is_file():
             raise FileNotFoundError(f"Robot speech file does not exist: {path}")
-        self.robot.media.play_sound(str(path))
+
+        playback_path = self._prepared_sounds.get(path)
+        if playback_path is None and self.mode == WIRELESS:
+            self.prepare_sounds((path,))
+            playback_path = self._prepared_sounds[path]
+
+        self.robot.media.play_sound(playback_path or str(path))
 
     def stop_sound(self) -> None:
         stop_playing = getattr(self.robot.media, "stop_playing", None)
@@ -150,7 +188,14 @@ class ReachyController:
         stop_playing()
 
     def wake_up(self) -> None:
-        self.robot.wake_up()
+        try:
+            robot = self.robot
+            robot.enable_motors()
+            robot.wake_up()
+        except ReachyConnectionError:
+            raise
+        except Exception as error:
+            raise ReachyConnectionError("Reachy could not wake up.") from error
 
     def play_emotion(self, name: str) -> None:
         if not name.strip():

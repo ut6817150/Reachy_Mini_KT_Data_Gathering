@@ -11,7 +11,7 @@ from services.reachy_controller import (
     ReachyController,
 )
 from services.recorder import CAMERA_NAME, MICROPHONE_NAME, RecordingError
-from services.speech import SpeechError, speech_file, validate_speech_assets
+from services.speech import SPEECH_DIR, SpeechError, speech_file, validate_speech_assets
 from services.storage import SessionStorage, normalize_participant_id
 from ui.constants import (
     PAGE_PARTICIPANT,
@@ -55,11 +55,15 @@ def render_reachy_connection(
             width="stretch",
             disabled=controller is not None,
         ):
+            candidate = None
             try:
                 candidate = ReachyController(mode, wireless_host)
-                with st.spinner("Connecting to Reachy Mini…"):
+                with st.spinner("Connecting to Reachy and preparing speech…"):
                     label = candidate.connect()
+                    candidate.prepare_sounds(sorted(SPEECH_DIR.glob("*.wav")))
             except (ReachyConnectionError, ValueError) as error:
+                if candidate is not None:
+                    candidate.disconnect()
                 st.error(str(error))
             else:
                 st.session_state["reachy_controller"] = candidate
@@ -114,6 +118,17 @@ def render_researcher_page() -> None:
         )
 
     reachy_ready = render_reachy_connection(mode, wireless_host)
+    if reachy_ready and st.button("Wake Reachy", width="stretch"):
+        controller = connected_reachy()
+        assert controller is not None
+        try:
+            with st.spinner("Waking Reachy…"):
+                controller.wake_up()
+        except ReachyConnectionError as error:
+            st.error(f"Reachy could not wake up: {error}")
+        else:
+            st.success("Reachy is awake and its motors are enabled.")
+
     if reachy_ready and st.button("Play Reachy speaker test", width="stretch"):
         controller = connected_reachy()
         assert controller is not None
@@ -122,7 +137,7 @@ def render_researcher_page() -> None:
                 st.session_state["robot_speaker"].play(
                     controller, speech_file("speaker_test.wav")
                 )
-        except (SpeechError, RecordingError, OSError) as error:
+        except (ReachyConnectionError, SpeechError, RecordingError, OSError) as error:
             st.error(f"Reachy connected, but the speaker test failed: {error}")
         else:
             st.success("Reachy speaker test played successfully.")
@@ -222,7 +237,6 @@ def render_participant_page() -> None:
             queue_robot_response(
                 emotion=WELCOME_EMOTION,
                 audio_path=speech_file("welcome.wav"),
-                wake_up=True,
                 status="Reachy is welcoming you…",
             )
             navigate_to(PAGE_WELCOME)

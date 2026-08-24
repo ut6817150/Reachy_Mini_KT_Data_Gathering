@@ -1,7 +1,6 @@
 """Streamlit session state and navigation helpers."""
 
 import streamlit as st
-import streamlit.components.v1 as components
 
 from services.experiment_controller import ExperimentController
 from services.reachy_controller import ReachyController
@@ -39,7 +38,7 @@ def navigate_to(page: str) -> None:
 def apply_scroll_reset() -> None:
     if st.session_state.pop("scroll_to_top", False) is not True:
         return
-    components.html(
+    st.iframe(
         """
         <script>
             const parentWindow = window.parent;
@@ -62,8 +61,8 @@ def apply_scroll_reset() -> None:
             parentWindow.setTimeout(scrollToTop, 400);
         </script>
         """,
-        height=0,
-        width=0,
+        height=1,
+        width=1,
     )
 
 

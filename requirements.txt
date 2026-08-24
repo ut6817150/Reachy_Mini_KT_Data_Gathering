@@ -1,3 +1,5 @@
 streamlit>=1.59,<2
 reachy-mini>=1.9,<2
+pandas>=2.2,<4
+faster-whisper>=1.2,<2
 pytest>=9,<10

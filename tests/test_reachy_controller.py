@@ -17,7 +17,13 @@ from services.reachy_controller import (
 class FakeMedia:
     def __init__(self) -> None:
         self.played: list[str] = []
+        self.uploaded: list[str] = []
         self.stopped = False
+        self.audio = self
+
+    def upload_sound(self, path: str) -> str:
+        self.uploaded.append(path)
+        return f"/tmp/reachy_mini_sounds/{Path(path).name}"
 
     def play_sound(self, path: str) -> None:
         self.played.append(path)
@@ -33,6 +39,7 @@ class FakeRobot:
         self.media = FakeMedia()
         self.exited = False
         self.woke_up = False
+        self.motors_enabled = False
         self.went_to_sleep = False
         self.played_moves: list[tuple[object, float, bool]] = []
         self.goto_targets: list[dict[str, object]] = []
@@ -45,6 +52,9 @@ class FakeRobot:
 
     def wake_up(self) -> None:
         self.woke_up = True
+
+    def enable_motors(self) -> None:
+        self.motors_enabled = True
 
     def goto_sleep(self) -> None:
         self.went_to_sleep = True
@@ -145,6 +155,7 @@ class ReachyControllerTests(unittest.TestCase):
         robot = factory.robot
         self.assertIsNotNone(robot)
         self.assertTrue(robot.woke_up)  # type: ignore[union-attr]
+        self.assertTrue(robot.motors_enabled)  # type: ignore[union-attr]
         self.assertTrue(robot.went_to_sleep)  # type: ignore[union-attr]
         self.assertTrue(robot.media.stopped)  # type: ignore[union-attr]
         self.assertEqual(robot.played_moves[-1][2], False)  # type: ignore[union-attr]
@@ -153,6 +164,45 @@ class ReachyControllerTests(unittest.TestCase):
         self.assertEqual(neutral["duration"], 0.5)
         self.assertIn("head", neutral)
         self.assertIn("antennas", neutral)
+
+    def test_wired_preparation_keeps_local_sound_path(self) -> None:
+        factory = Factory("localhost_only", "localhost")
+        controller = ReachyController(WIRED)
+        self.connect(controller, factory)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sound = Path(temp_dir) / "speech.wav"
+            sound.touch()
+            self.assertEqual(controller.prepare_sounds((sound,)), 1)
+            controller.play_sound(sound)
+
+        robot = factory.robot
+        self.assertIsNotNone(robot)
+        self.assertEqual(robot.media.uploaded, [])  # type: ignore[union-attr]
+        self.assertEqual(robot.media.played, [str(sound.resolve())])  # type: ignore[union-attr]
+
+    def test_wireless_preparation_uploads_once_and_reuses_remote_path(self) -> None:
+        factory = Factory("network", "192.168.1.42")
+        controller = ReachyController(WIRELESS, "192.168.1.42")
+        self.connect(controller, factory)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            sound = Path(temp_dir) / "speech.wav"
+            sound.touch()
+            local_path = str(sound.resolve())
+            remote_path = "/tmp/reachy_mini_sounds/speech.wav"
+
+            self.assertEqual(controller.prepare_sounds((sound,)), 1)
+            controller.play_sound(sound)
+            controller.play_sound(sound)
+
+        robot = factory.robot
+        self.assertIsNotNone(robot)
+        self.assertEqual(robot.media.uploaded, [local_path])  # type: ignore[union-attr]
+        self.assertEqual(  # type: ignore[union-attr]
+            robot.media.played,
+            [remote_path, remote_path],
+        )
 
     def test_connection_failure_has_useful_message(self) -> None:
         def fail(**_settings: object):
