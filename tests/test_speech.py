@@ -7,7 +7,7 @@ import unittest
 from unittest.mock import patch
 import wave
 
-from services.speech import RobotSpeaker, expected_speech_assets
+from services.speech import SPEECH_DIR, RobotSpeaker, expected_speech_assets
 
 
 class FakeReachy:
@@ -35,6 +35,9 @@ class CancellableReachy:
 
 
 class RobotSpeakerTests(unittest.TestCase):
+    def test_application_uses_aiden_speech_set(self) -> None:
+        self.assertEqual(SPEECH_DIR.name, "Qwen3-TTS-Aiden")
+
     def test_speech_assets_use_question_zero_through_twelve(self) -> None:
         questions = tuple(f"Question {number}" for number in range(13))
         assets = expected_speech_assets(questions)

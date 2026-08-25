@@ -1,0 +1,13 @@
+{
+  "model": "mlx-community/Qwen3-TTS-12Hz-1.7B-CustomVoice-bf16",
+  "speaker": "Ryan",
+  "language": "English",
+  "default_style_instruction": null,
+  "file_style_instructions": {
+    "welcome.wav": "Speak warmly and appreciatively, with a gentle cheerful tone and a slightly upbeat ending.",
+    "next_question.wav": "Speak warmly and appreciatively, with a gentle cheerful tone and a slightly upbeat ending.",
+    "final_question.wav": "Use a clear, confident, full speaking voice at a normal conversational volume. Sound warm and encouraging; do not whisper.",
+    "completion.wav": "Speak warmly and appreciatively, with a gentle cheerful tone and a slightly upbeat ending."
+  },
+  "random_seed": 42
+}

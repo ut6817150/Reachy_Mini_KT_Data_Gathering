@@ -35,12 +35,14 @@ records one synchronized MP4 response per question.
 - `services/recorder.py` — synchronized MP4 recording with FFmpeg
 - `services/reachy_controller.py` — wired and wireless Reachy connection and actions
 - `services/speech.py` — prepared speech paths, validation, and Reachy playback
-- `services/generate_speech.py` — one-time macOS speech-file generator
 - `services/experiment_controller.py` — question-loop state
 - `services/question_loader.py` — Markdown question loading
 - `services/storage.py` — participant folders and session metadata
 - `questions/questions.md` — editable study questions
-- `assets/speech/default/` — default prepared WAV files and their text manifest
+- `assets/speech/Qwen3-TTS-Aiden/` — active prepared Aiden WAV files
+- `assets/speech/default/` — legacy prepared macOS voice files
+- `extraction/generate_aiden_speech.ipynb` — local Aiden speech generator
+- `extraction/generate_macos_speech.ipynb` — legacy macOS speech generator
 - `recordings/` — participant/session folders containing MP4 recordings
 - `tests/` — automated checks that do not contain participant data
 
@@ -88,7 +90,7 @@ uploads the files again.
 
 ## Prepared speech
 
-Participant sessions do not generate speech live. The default voice set contains
+Participant sessions do not generate speech live. The active Aiden voice set contains
 18 prepared files:
 
 - one speaker test;
@@ -96,20 +98,22 @@ Participant sessions do not generate speech live. The default voice set contains
 - three acknowledgement/completion messages;
 - one practice-question voiceover and twelve scored-question voiceovers.
 
-The files are stored in `assets/speech/default/` as mono, 16-bit, 24 kHz WAV
-audio. `manifest.json` records the exact source text for every file. When a
-participant starts, the application verifies that all files exist and that the
-manifest still matches `questions/questions.md`.
+The files are stored in `assets/speech/Qwen3-TTS-Aiden/` as mono, 16-bit, 24 kHz
+WAV audio. `manifest.json` records the exact source text for every file, while
+`generation.json` records the Qwen3-TTS model, Aiden speaker, and generation
+settings. When a participant starts, the application verifies that all files
+exist and that the manifest still matches `questions/questions.md`.
 
-The generator uses the macOS `say` command:
+Regenerate the active Aiden files by running all cells in:
 
-```bash
-python -m services.generate_speech
+```text
+extraction/generate_aiden_speech.ipynb
 ```
 
-Run it again whenever a question or fixed study message changes. Other prepared
-voice sets can be placed under `assets/speech/` in the future, but the application
-currently uses `assets/speech/default/`.
+Run the notebook again whenever a question or fixed study message changes. The
+older macOS `say` generator remains available in
+`extraction/generate_macos_speech.ipynb`. It writes only to
+`assets/speech/default/` and does not replace the active Aiden files.
 
 ## Run the application
 
@@ -120,7 +124,6 @@ requirements, prepare the speech files, and start Streamlit:
 python3 -m venv .venv
 source .venv/bin/activate
 python -m pip install -r requirements.txt
-python -m services.generate_speech
 streamlit run streamlit_app.py
 ```
 

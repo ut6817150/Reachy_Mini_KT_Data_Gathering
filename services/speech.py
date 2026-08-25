@@ -10,7 +10,10 @@ import wave
 from services.reachy_controller import ReachyController
 
 
-SPEECH_DIR = Path(__file__).resolve().parents[1] / "assets" / "speech" / "default"
+SPEECH_SET_NAME = "Qwen3-TTS-Aiden"
+SPEECH_DIR = (
+    Path(__file__).resolve().parents[1] / "assets" / "speech" / SPEECH_SET_NAME
+)
 MANIFEST_PATH = SPEECH_DIR / "manifest.json"
 
 WELCOME_MESSAGE = (
@@ -64,7 +67,7 @@ def validate_speech_assets(questions: tuple[str, ...]) -> None:
     if manifest != expected or missing:
         raise SpeechError(
             "Prepared speech is missing or out of date. Run "
-            "'python -m services.generate_speech' before starting the study."
+            "'extraction/generate_aiden_speech.ipynb' before starting the study."
         )
 
 
