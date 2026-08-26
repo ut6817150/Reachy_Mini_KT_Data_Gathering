@@ -38,12 +38,13 @@ records one synchronized MP4 response per question.
 - `services/experiment_controller.py` — question-loop state
 - `services/question_loader.py` — Markdown question loading
 - `services/storage.py` — participant folders and session metadata
-- `questions/questions.md` — editable study questions
+- `study/questions.md` — editable study questions
 - `assets/speech/Qwen3-TTS-Aiden/` — active prepared Aiden WAV files
 - `assets/speech/default/` — legacy prepared macOS voice files
 - `extraction/generate_aiden_speech.ipynb` — local Aiden speech generator
 - `extraction/generate_macos_speech.ipynb` — legacy macOS speech generator
-- `recordings/` — participant/session folders containing MP4 recordings
+- `data/recordings/` — participant/session folders containing MP4 recordings
+- `data/extracted_data/` — generated transcription datasets
 - `tests/` — automated checks that do not contain participant data
 
 ## Requirements
@@ -88,6 +89,10 @@ each prepared WAV once and reuses the robot-side copy for low-latency playback
 throughout subsequent participant sessions. Reconnecting after a robot restart
 uploads the files again.
 
+The researcher page includes a 0–100 speaker-volume slider. Applying it sends a
+volume command through the active SDK connection, so it works for both wired and
+wireless Reachy without modifying the prepared WAV files.
+
 ## Prepared speech
 
 Participant sessions do not generate speech live. The active Aiden voice set contains
@@ -102,7 +107,7 @@ The files are stored in `assets/speech/Qwen3-TTS-Aiden/` as mono, 16-bit, 24 kHz
 WAV audio. `manifest.json` records the exact source text for every file, while
 `generation.json` records the Qwen3-TTS model, Aiden speaker, and generation
 settings. When a participant starts, the application verifies that all files
-exist and that the manifest still matches `questions/questions.md`.
+exist and that the manifest still matches `study/questions.md`.
 
 Regenerate the active Aiden files by running all cells in:
 
@@ -180,7 +185,7 @@ Reachy to sleep before returning to the next participant's start page.
 Recordings are stored as:
 
 ```text
-recordings/
+data/recordings/
 └── PARTICIPANT_ID/
     └── session_YYYYMMDD_HHMMSS_.../
         ├── question_00.mp4  # unscored practice response

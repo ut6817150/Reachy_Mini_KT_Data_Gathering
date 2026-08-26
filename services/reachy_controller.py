@@ -69,6 +69,7 @@ class ReachyController:
         self._emotion_library: Any | None = None
         self._connection_label: str | None = None
         self._prepared_sounds: dict[Path, str] = {}
+        self._speaker_volume: int | None = None
 
     @property
     def is_connected(self) -> bool:
@@ -83,10 +84,13 @@ class ReachyController:
         return self._robot
 
     def settings(self) -> dict[str, object]:
-        return {
+        settings: dict[str, object] = {
             "mode": self.mode,
             "wireless_host": self.wireless_host,
         }
+        if self._speaker_volume is not None:
+            settings["speaker_volume"] = self._speaker_volume
+        return settings
 
     def connect(self) -> str:
         if self._connection_label:
@@ -186,6 +190,27 @@ class ReachyController:
         if not callable(stop_playing):
             raise ReachyConnectionError("Reachy's audio backend cannot stop playback.")
         stop_playing()
+
+    def set_volume(self, volume: int) -> None:
+        """Set the robot's global speaker volume from 0 to 100."""
+
+        if (
+            isinstance(volume, bool)
+            or not isinstance(volume, int)
+            or not 0 <= volume <= 100
+        ):
+            raise ValueError("Reachy speaker volume must be an integer from 0 to 100.")
+        try:
+            from reachy_mini.io.protocol import SetVolumeCmd
+
+            self.robot.client.send_command(SetVolumeCmd(volume=volume))
+        except ReachyConnectionError:
+            raise
+        except Exception as error:
+            raise ReachyConnectionError(
+                "Reachy's speaker volume could not be set."
+            ) from error
+        self._speaker_volume = volume
 
     def wake_up(self) -> None:
         try:

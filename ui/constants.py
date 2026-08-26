@@ -4,8 +4,8 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
-QUESTIONS_PATH = ROOT / "questions" / "questions.md"
-RECORDINGS_ROOT = ROOT / "recordings"
+QUESTIONS_PATH = ROOT / "study" / "questions.md"
+RECORDINGS_ROOT = ROOT / "data" / "recordings"
 
 PAGE_RESEARCHER = "researcher_setup"
 PAGE_PARTICIPANT = "participant_start"

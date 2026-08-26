@@ -118,6 +118,33 @@ def render_researcher_page() -> None:
         )
 
     reachy_ready = render_reachy_connection(mode, wireless_host)
+    speaker_volume = st.slider(
+        "Reachy speaker volume",
+        min_value=0,
+        max_value=100,
+        value=60,
+        step=5,
+        key="reachy_speaker_volume",
+        disabled=not reachy_ready,
+        help="Sets the robot's global output volume for speech and other sounds.",
+    )
+    if st.button(
+        "Apply Reachy speaker volume",
+        width="stretch",
+        disabled=not reachy_ready,
+    ):
+        controller = connected_reachy()
+        assert controller is not None
+        try:
+            controller.set_volume(speaker_volume)
+        except (ReachyConnectionError, ValueError) as error:
+            st.error(f"Reachy volume could not be changed: {error}")
+        else:
+            st.success(
+                f"Volume command sent at {speaker_volume}%. "
+                "Use the speaker test to confirm it."
+            )
+
     if reachy_ready and st.button("Wake Reachy", width="stretch"):
         controller = connected_reachy()
         assert controller is not None

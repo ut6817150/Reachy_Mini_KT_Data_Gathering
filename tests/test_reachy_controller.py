@@ -32,10 +32,20 @@ class FakeMedia:
         self.stopped = True
 
 
+class FakeClient:
+    def __init__(self, host: str, port: int) -> None:
+        self.host = host
+        self.port = port
+        self.sent_commands: list[object] = []
+
+    def send_command(self, command: object) -> None:
+        self.sent_commands.append(command)
+
+
 class FakeRobot:
     def __init__(self, mode: str, host: str, port: int) -> None:
         self.connection_mode = mode
-        self.client = type("Client", (), {"host": host, "port": port})()
+        self.client = FakeClient(host, port)
         self.media = FakeMedia()
         self.exited = False
         self.woke_up = False
@@ -130,6 +140,25 @@ class ReachyControllerTests(unittest.TestCase):
     def test_actions_require_a_connection(self) -> None:
         with self.assertRaises(ReachyConnectionError):
             ReachyController().wake_up()
+
+    def test_speaker_volume_uses_existing_robot_connection(self) -> None:
+        factory = Factory("network", "192.168.1.42")
+        controller = ReachyController(WIRELESS, "192.168.1.42")
+        self.connect(controller, factory)
+
+        controller.set_volume(65)
+
+        robot = factory.robot
+        self.assertIsNotNone(robot)
+        command = robot.client.sent_commands[-1]  # type: ignore[union-attr]
+        self.assertEqual(command.volume, 65)  # type: ignore[attr-defined]
+        self.assertEqual(controller.settings()["speaker_volume"], 65)
+
+    def test_speaker_volume_rejects_values_outside_zero_to_one_hundred(self) -> None:
+        controller = ReachyController()
+        for volume in (-1, 101):
+            with self.subTest(volume=volume), self.assertRaises(ValueError):
+                controller.set_volume(volume)
 
     def test_sound_emotion_wake_and_sleep(self) -> None:
         factory = Factory("localhost_only", "localhost")

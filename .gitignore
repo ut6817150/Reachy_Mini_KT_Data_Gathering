@@ -6,5 +6,5 @@ __pycache__/
 .cache/
 
 # Participant recordings are sensitive and must remain local.
-recordings/*
-!recordings/.gitkeep
+data/recordings/*
+!data/recordings/.gitkeep
